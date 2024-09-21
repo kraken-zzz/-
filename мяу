@@ -1,0 +1,1650 @@
+// ==UserScript==
+// @name         zz_script
+// @name:ru      мяу
+// @namespace    https://catwar.su/cat1424005
+// @version      2.0.2.4
+// @description  Управляем группами котиков
+// @author       я
+// @match        *://catwar.su/*
+// @license      MIT; https://opensource.org/licenses/MIT
+// @updateURL    https://meore.com/zz_script.user.js
+// @downloadURL  https://meore.com/zz_script.user.js
+// @grant        GM_xmlhttpRequest
+// @grant        GM.xmlHttpRequest
+// @require      https://meore.com/zz_script.lite.js?2.0.2.4
+// @require      https://meore.com/lib/jquery-ui.js
+// ==/UserScript==
+
+/*global jQuery*/
+
+(function (window, document, $) {
+    'use strict';
+
+    /*
+
+    Приветики, контакты для связи: info@meore.com или https://vk.com/liverh
+    28 ноября 2023 года - скрипт 2.0
+
+    История изменений:
+
+    2.0.0.0 - Режем функционал скрипта по живому, надеюсь что-то юзабельное останется;
+            - убрано все внешнее взаимодействие, скрипт работает только локально;
+            - убраны карты локаций из состава данных скрипта;
+    2.0.0.4 - Исправлены ошибки при вырезации кода, например подсчет времени перехода;
+    2.0.0.5 - добавлена подсветка трав;
+    2.0.0.8 - Запоминаем где видели котиков;
+    2.0.1.0 - Выпиливаем то где видели котов и котов во рту по требованию АМС;
+    2.0.1.1 - Исправляем ошибку в Replace в шаблонах
+
+    2.0.2.1 - снял блокировку, желающие - пользуйтесь, скрипт одобрен АМС вара
+
+    2.0.2.2 - Статистика истории 
+    2.0.2.3 - Исправлена ошибка с тегом [n] в парсере BB-кодов
+    */
+
+    if (typeof $ === 'undefined') return;
+    const la_version = '2.0.2.4';
+
+    const adedNames = ['Объятый инеем ', 'Объятая инеем ',
+        'Снежное чудо ',
+        ', растопитель сердец', ', растопительница сердец',
+        ', раскалывающий льды', ', раскалывающая льды',
+        'Заледеневший сердцем ', 'Заледеневшая сердцем '];
+
+    const MutationObserver = window.MutationObserver || window.WebKitMutationObserver || window.MozMutationObserver;
+    const isDesktop = !$('meta[name=viewport]').length;
+    const defaults = {
+        'la_version' : la_version
+
+        , 'la_cats_visible' : false
+        , 'la_cats_list' : ''
+        , 'la_maps_list' : ''
+        , 'la_show_all_cats' : true
+
+        , 'la_show_id' : true
+        , 'la_show_title' : true
+
+        , 'la_cur_group' : 0
+
+        , 'la_patruls' : [{name: 'Внешний подотряд', route: 'Ущелье совы ➝ Солнечная тропинка ➝ Лисий лес ➝ Берег упавшего дерева ➝ Сосновый овраг ➝ Сожжённый кедр ➝ Прибрежный лес ➝ Берлога ➝ Прибрежный лес ➝ Разбитая скала ➝ Бурная речка ➝ Речной остров ➝ Спокойная река ➝ Река серебристых рыб ➝ Серебристая река ➝ Солнечная тропинка ➝ Ущелье совы'}
+            ,{name: 'Внутренний подотряд', route: 'Ущелье совы ➝ Солнечная тропинка ➝ Серебристая река ➝ Река серебристых рыб ➝ Спокойная река ➝ Речной остров ➝ Мелкая река ➝ Заводь с кувшинками ➝ Бурелом ➝ Тенистая тропа ➝ Бурелом ➝ Дремучая чаща ➝ Рысье дерево ➝ Дремучая чаща ➝ Солнечная тропинка ➝ Ущелье совы'}
+            ,{name: 'Спаренный патруль', route: 'Ущелье совы ➝ Солнечная тропинка ➝ Серебристая река ➝ Дремучая чаща ➝ Рысье дерево ➝ Дремучая чаща ➝ Бурелом ➝ Тенистая тропа ➝ Бурелом ➝ Заводь с кувшинками ➝ Мелкая река ➝ Речной остров ➝ Бурная речка ➝ Разбитая скала ➝ Прибрежный лес ➝ Берлога ➝ Прибрежный лес ➝ Сожжённый кедр ➝ Сосновый овраг ➝ Берег упавшего дерева ➝ Лисий лес ➝ Солнечная тропинка ➝ Ущелье совы'}]
+        , 'move_time' : 45
+        , 'la_groups' : []
+        , 'la_reports' : [{
+            name: 'Охотничий патруль', list: '$Name ($ID)',
+            report: `[b]Дата и время патруля:[/b] $Date / $Time
+[b]Охотники:[/b] $List;
+[b]Носильщик:[/b] ;
+[b]Поймано дичи:[/b] N , носильщик перенес Y штуки.`}, {
+            name: 'Ловля вне патруля', list: '$Name ($ID)',
+            report: `[b]Дата:[/b] $Date
+[b]Охотник:[/b] $Name ($ID)
+[b]Носильщики:[/b] ;
+[b]Количество дичи:[/b] N`}, {
+            name: 'Перенос дичи', list: '$Name ($ID)',
+            report: `[b]Дата переноса:[/b] $Date
+[b]Носильщик:[/b] $Name ($ID)
+[b]Количество:[/b] N`}, {
+            name: 'Патруль дозорных', list: '$Name ($ID)',
+            report: `[b][$Date | $Time][/b]
+[b]Маршрут:[/b] спаренный/внутренний/внешний;
+[b]Ведущий:[/b] $ID;
+[b]Состав патруля:[/b] $List;
+[b]Изменения в составе:[/b] имя (айди) - выход/присоединение - локация;
+[b]Нарушители:[/b] ;
+[b]Заметки:[/b] .`}, {
+            name: 'Дозор', list: '$Name ($ID)',
+            report: `[b][$Date | $Time - $Time | N час][/b]
+[b]Вид дозора:[/b] пассивный/активный;
+[b]Состав дозора:[/b] $Name ($ID);
+[b]Локация дозора:[/b] маршрут/локация;
+[b]Нарушители:[/b] ;
+[b]Заметки:[/b] .`}, {
+            name: 'Обход', list: '$Name ($ID)',
+            report: `[b][$Date | $Time - $Time][/b]
+[b]Состав обхода:[/b] $Name ($ID)
+[b]Нарушители:[/b] ;
+[b]Заметки:[/b] .`}
+        ]
+        , 'la_items' : [
+            {name: 'Травы', color: '#00ff004d', items: [13, 15, 17, 19, 23, 25, 26, 106, 108, 109, 110, 111, 112, 115, 116, 119]},
+            {name: 'Паутина', color: '#ff590057', items: [20]},
+            {name: 'Дно', color: '#ffd90045', items: [22, 75, 76, 3993]},
+            {name: 'Ветки и вьюнки', color: '#00f2ff38', items: [565, 566, 1035]}
+        ], 'la_showitems' : false
+        , 'la_myID' : ''
+        , 'la_myBID' : 0
+        , 'la_delay' : 2
+        , 'updateTimer' : 120
+        , 'checkedSelector' : ''
+        , 'myGUID' : ''
+        , 'myTitle' : ''
+        , 'myName' : ''
+        , 'tribe' : ''
+        , 'show_BB' : false
+        , 'show_stat' : false
+        , 'BBID' : 0
+        , 'locked' : true
+        , 'left' : 10
+        , 'top' : 10
+        , 'prevlocation' : 0
+        , 'location' : 0
+        , 'locaName' : '< не определена >'
+        , 'mapAdd' : 0
+        , 'tmplt' : []
+        , 'la_cats' : []
+    };
+
+    const globals = {}; //Настройки
+    for (var key in defaults) {
+        let settings = getSettings(key);
+        if (settings === null) {
+            globals[key] = defaults[key];
+        } else {
+            if (Array.isArray(defaults[key])) {
+                globals[key] = JSON.parse(settings);
+            } else {
+                globals[key] = settings;
+            }
+        }
+    };
+
+    let worldGroups = [];
+    let currGroup = 0;
+
+    if (globals.la_patruls.length > 0)  {
+        worldmap[0] = {name: '> Свои Маршруты <', route: []};
+
+        let routeID = 999000;
+        worldmap[routeID] = {group: 999000, dif: 0, name: '> Свои Маршруты <', parent: 0, route: []};
+        routeID++;
+
+        globals.la_patruls.forEach(patrul => {
+            worldmap[routeID] = {group: 999000, dif: 0, name: patrul.name, route: [], track: patrul.route};
+            routeID++;
+        })
+    };
+
+    function uuidv4() {
+        return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+            (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+        );
+    };
+
+    if (globals.myGUID === '') {
+        globals.myGUID = uuidv4();
+        setSettings('myGUID', globals.myGUID);
+    }
+
+    la_constructor();
+
+    if ($('.stylish-style').length) globals.locked = false;
+
+    worldmap.forEach((item, id) => {
+        if (item.route.length == 0 && item.track == undefined && item.map == undefined) {
+            if (item.parent == undefined) {
+                currGroup = id;
+                worldGroups[currGroup] = [];
+            } else currGroup = item.parent;
+        } else worldGroups[currGroup].push(id);
+    });
+
+    let worldmapSorted = worldmap.map(item => item.name);
+
+    function getCageByCoords(x, y) {
+        return document.getElementById('cages').firstChild.childNodes[y-1].childNodes[x-1].querySelectorAll('.move_name');
+    };
+
+    function getMovesMap() {
+        let res = [];
+
+        for(let Y = 1; Y < 7; Y++)
+            for(let X = 1;  X < 11; X++)
+            {
+                let move = getCageByCoords(X, Y);
+                if (move.length > 0) res.push((X)*10 + Y);
+            }
+
+        let resS = '';
+        res.forEach(item => resS += item);
+
+        return resS;
+    };
+
+    function getCurrentMapGlobalID() {
+        const imgs = $('#cages_div').css('background-image').split(/[\/.]/);
+        imgs.pop();
+        let result = parseInt(imgs.pop(), 10);
+        return (isNaN(result) ? -1 : result);
+    };
+
+    function getCurrentMapID() {
+        const curmapName = $('#location').html();
+        const mm = getMovesMap();
+        let currMapID = worldmapSorted.indexOf(curmapName);
+
+        if (currMapID  == -1) {
+            currMapID = getCurrentMapGlobalID();
+        };
+
+        if (currMapID >= 200 && currMapID <= 300 || hiddenIDList[currMapID] != undefined) {
+            currMapID = movemap.indexOf(curmapName + mm);
+            if (currMapID == -1) currMapID = movemap.indexOf(mm);
+
+            if (currMapID == -1) {
+                let isSwimPresent = $('#akten').find('a[data-id=24]').length > 0;
+                currMapID = movemap.indexOf((isSwimPresent ? '+' : '-') + curmapName + mm);
+            }
+        };
+
+        if (currMapID != -1 && globals.location != -1 && globals.location != currMapID) {
+            globals.prevlocation = globals.location;
+        };
+
+        if (worldmap[currMapID] != undefined && worldmap[currMapID].dif == 10 && worldmap[globals.prevlocation] != undefined && worldmap[globals.prevlocation].map == (curmapName + mm)) currMapID = globals.prevlocation;
+        else if (worldmap[currMapID] != undefined && worldmap[currMapID].dif == 10 && worldmap[globals.prevlocation+1] != undefined && worldmap[globals.prevlocation+1].map == (curmapName + mm)) currMapID = globals.prevlocation+1;
+        else if (worldmap[currMapID] != undefined && worldmap[currMapID].dif == 10 && worldmap[globals.prevlocation-1] != undefined && worldmap[globals.prevlocation-1].map == (curmapName + mm)) currMapID = globals.prevlocation-1;
+
+        globals.location = currMapID;
+        globals.locaName = (worldmap[currMapID] == undefined ? '< не определено >' : worldmap[currMapID].name);
+
+        setSettings('prevlocation', globals.prevlocation);
+        setSettings('location', globals.location);
+        setSettings('locaName', globals.locaName);
+
+        if (typeof globals.mapAdd === 'string' || globals.mapAdd instanceof String) globals.mapAdd = parseInt(globals.mapAdd, 10);
+        if (currMapID != undefined && currMapID != -1) {
+            const curMapData = worldmap[currMapID];
+            if (curMapData != undefined && curMapData.hr != undefined && curMapData.n > 0) {
+                if (globals.mapAdd > 0) currMapID = 0 + currMapID + globals.mapAdd - curMapData.n;
+                $('#la_addMaps').removeClass('hidden')
+            } else $('#la_addMaps').addClass('hidden');
+        };
+
+        return currMapID;
+    };
+
+    function fancyTimeFormat(time) {
+        // Hours, minutes and seconds
+        var hrs = Math.floor(time / 3600);
+        var mins = Math.floor((time % 3600) / 60);
+        var secs = Math.floor(time) % 60;
+
+        // Output like "1:01" or "4:03:59" or "123:03:59"
+        var ret = "";
+
+        if (hrs > 0) {
+            ret += "" + hrs + ":" + (mins < 10 ? "0" : "");
+        }
+
+        ret += "" + mins + ":" + (secs < 10 ? "0" : "");
+        ret += "" + secs;
+        return ret;
+    };
+
+    function getSettings(key) { //Получение настроек
+        let setting = 'la_sett_' + key;
+        let val = window.localStorage.getItem(setting);
+        switch (val) {
+            case null: return null;
+            case 'true': return true;
+            case 'false': return false;
+        default:
+            return val;
+        }
+    };
+
+    var error_tm;
+
+    function error(t) {
+        $("#error").text(t).show();
+        clearTimeout(error_tm);
+        error_tm = setTimeout(function () {
+            hideError()
+        }, 10000);
+    }
+
+    function hideError() {
+        clearTimeout(error_tm);
+        $("#error").fadeOut(500);
+    }
+
+    function setSettings(key, val) {
+        let setting = 'la_sett_' + key;
+        window.localStorage.setItem(setting, val);
+    }
+
+    function removeSettings(key) {
+        let setting = 'la_sett_' + key;
+        window.localStorage.removeItem(setting);
+    }
+
+    function addCSS(css) {
+        $('head').append(`<style>${css}</style>`);
+    }
+
+    function longArrToStr(arr) {
+        let res = [];
+        arr.forEach((id, val) => {res.push({i: id, v: val})});
+        return JSON.stringify(res);
+    }
+
+    function strToLongArr(str) {
+        let res = [];
+        let mas = JSON.parse(str);
+        mas.forEach(item => {res[item.i] = item.v});
+        return res;
+    }
+
+    const pageurl = window.location.href;
+    const isCW3 = (/^https:\/\/\w?\.?catwar.su\/cw3(?!(\/kns|\/jagd))/.test(pageurl));
+    const isDM = (/^https:\/\/\w?\.?catwar.su\/ls/.test(pageurl));
+    const isHunt = (/^https:\/\/\w?\.?catwar.su\/cw3\/jagd/.test(pageurl));
+    const isSett = (/^https:\/\/\w?\.?catwar.su\/settings/.test(pageurl));
+    const isMyCat = (/^https:\/\/\w?\.?catwar.su\/$/.test(pageurl));
+    const isBlog = (/^https:\/\/\w?\.?catwar.su\/blog\d+/.test(pageurl));
+    const isCUMoves = (/^https:\/\/\w?\.?catwar.su\/moves$/.test(pageurl));
+    const isProfile = (/^https:\/\/\w?\.?catwar.su\/cat(\d+|\/)/.test(pageurl));
+    const isChat = (/^https:\/\/\w?\.?catwar.su\/chat/.test(pageurl));
+
+    try {
+        console.log('kb_lite');
+
+        if (!la_init(globals.la_myID, globals.tribe)) return;
+        if (isMyCat) myCat();
+        if (isCW3) cw3();
+
+        if (globals.show_BB && !isCW3) bbCode();
+        if (isDM) dm();
+        if (isSett) sett();
+
+    } catch (err) {
+        window.console.error('la: kb_track error: ', err);
+    };
+
+    function bbCode() {
+
+        function getBBCode(html) {
+            const parse = $.parseHTML(html);
+            if (!parse.length) return html;
+
+            let result = '';
+            let id = 0;
+            while (id < parse.length) {
+                let node = parse[id];
+                let needBody = true;
+
+                if (node.nodeName === '#text') {
+                    result += node.data;
+                } else {
+                    let openTag = '';
+                    let closeTag = '';
+                    let pattern = /background-color:([^<]+)/i;
+                    let found = [];
+                    let style = null;
+
+                    switch (node.nodeName) {
+                        case 'BR': openTag = '\n'; break;
+                        case 'HR': openTag = '[hr]'; break;
+                        case 'IMG': openTag = '[img]' + node.attributes[0].nodeValue + '[/img]'; break;
+                        case 'A': {
+                            if (node.attributes.class != undefined && node.attributes.class.value == 'headers') {
+                                openTag = '[header=' + node.attributes['data-id'].value + ']';
+                                closeTag = '[/header]';
+                                break;
+                            }
+
+                            openTag = '[url=' + node.attributes[0].nodeValue + ']';
+                            closeTag = '[/url]';
+                            break;
+                        }
+                        case 'TABLE': if (node.attributes.length) {
+
+                            if (node.attributes.border != undefined)
+                            {
+                                openTag = '[table=' + node.attributes.border.value + ']';
+                                closeTag = '[/table]';
+                                break;
+                            }
+
+                            style = node.attributes.style;
+                            if (style != undefined) {
+                                pattern = /background-color:([^<]+)/i;
+                                found = style.nodeValue.match(pattern);
+                                if (found != undefined && found[1] != undefined) {
+                                    openTag = '[table=' + found[1] + ']';
+                                    closeTag = '[/table]';
+                                }
+                            };
+
+                        } else {
+                            openTag = '[table=0]';
+                            closeTag = '[/table]';
+                        } break;
+                        case 'DIV':
+                        case 'SPAN':
+                            style = node.attributes[0];
+                            if (style == undefined) {
+                                openTag = '[n]';
+                                closeTag = '[/n]';
+                                break;
+                            }
+                            
+                            if (style.nodeName === 'align') {
+                                openTag = '[' + style.nodeValue + ']';
+                                closeTag = '[/' + style.nodeValue + ']';
+                                break;
+                            }
+
+                            if (style.nodeName === 'class' && style.value == 'blocks') {
+                                openTag = '[block=' + node.attributes['data-id'].value + ']';
+                                closeTag = '[/block]';
+                                break;
+                            }
+                            if (style.nodeName === 'style') {
+
+                                pattern = /font-family:([^";<]+)/i;
+                                found = style.nodeValue.match(pattern);
+                                if (found != undefined && found[1] != undefined) {
+                                    openTag = '[font=' + found[1].trim() + ']';
+                                    closeTag = '[/font]';
+                                    break;
+                                }
+
+                                pattern = /background-color:([^";<]+)/i;
+                                found = style.nodeValue.match(pattern);
+                                if (found != undefined && found[1] != undefined) {
+                                    if (style.nodeName === 'span') {
+                                        openTag = '[bgr=' + found[1].trim() + ']';
+                                        closeTag = '[/bgr]';
+                                    } else {
+                                        openTag = '[bgrf=' + found[1].trim() + ']';
+                                        closeTag = '[/bgrf]';
+                                    }
+                                    break;
+                                }
+
+                                pattern = /color:([^"<]+);display:inline/i;
+                                found = style.nodeValue.match(pattern);
+                                if (found != undefined && found[1] != undefined) {
+                                    if (found[1].trim() === '') {
+                                        openTag = '';
+                                        closeTag = '';
+                                    } else {
+                                        openTag = '[color=' + found[1].trim() + ']';
+                                        closeTag = '[/color]';
+                                    }
+                                    break;
+                                }
+
+                                pattern = /color:([^"<]+)/i;
+                                found = style.nodeValue.match(pattern);
+                                if (found != undefined && found[1] != undefined) {
+                                    if (found[1].trim() === '') {
+                                        openTag = '';
+                                        closeTag = '';
+                                    } else {
+                                        openTag = '[color=' + found[1].trim() + ']';
+                                        closeTag = '[/color]';
+                                    }
+                                    break;
+                                }
+
+                                pattern = /font-size:([^";<]+)pt/i;
+                                found = style.nodeValue.match(pattern);
+                                if (found != undefined && found[1] != undefined) {
+                                    openTag = '[size=' + found[1].trim() + ']';
+                                    closeTag = '[/size]';
+                                    break;
+                                }
+
+                                pattern = /background-image: url\('([^'";<]+)'\); background-repeat: no-repeat/i;
+                                found = style.nodeValue.match(pattern);
+                                if (found != undefined && found[1] != undefined) {
+                                    openTag = '[divr=' + found[1].trim() + ']';
+                                    closeTag = '[/divr]';
+                                    break;
+                                }
+
+                                pattern = /background-image: url\('([^'";<]+)'\)/i;
+                                found = style.nodeValue.match(pattern);
+                                if (found != undefined && found[1] != undefined) {
+                                    openTag = '[divr=' + found[1].trim() + ']';
+                                    closeTag = '[/divr]';
+                                    break;
+                                }
+
+                                pattern = /background-image:url\('([^'";<]+)'\); background-repeat: no-repeat/i;
+                                found = style.nodeValue.match(pattern);
+                                if (found != undefined && found[1] != undefined) {
+                                    openTag = '[divr=' + found[1].trim() + ']';
+                                    closeTag = '[/divr]';
+                                    break;
+                                }
+
+                                pattern = /background-image:url\('([^'";<]+)'\)/i;
+                                found = style.nodeValue.match(pattern);
+                                if (found != undefined && found[1] != undefined) {
+                                    openTag = '[divr=' + found[1].trim() + ']';
+                                    closeTag = '[/divr]';
+                                    break;
+                                }
+                            }
+                            break;
+                        case 'TBODY' : break;
+
+                        default: {
+                            openTag = '[' + node.nodeName.toLowerCase() + ']';
+                            closeTag = '[/' + node.nodeName.toLowerCase() + ']';
+                        }
+                    }
+
+                    result += openTag;
+                    if (node.innerHTML.length && needBody) result += getBBCode(node.innerHTML);
+                    result += closeTag;
+                }
+                id++;
+            }
+
+            return result;
+        }
+
+        function bbGetParsedControl() {
+            while (document.querySelectorAll('.parsed')[globals.BBID] && !document.querySelectorAll('.parsed')[globals.BBID].getBoundingClientRect().width) globals.BBID++;
+            return $(document.querySelectorAll('.parsed')[globals.BBID]);
+        }
+
+        function updateCode() {
+            let elems = bbGetParsedControl();
+            if (elems.length) {
+                let coords = elems[0].getBoundingClientRect();
+                $('#bbCodeWraper').css('display', 'block');
+                let ofx = $('#bbCodeWraper')[0].getBoundingClientRect().width+3;
+                $('#bbCodeWraper').css('left', coords.left + window.pageXOffset - ofx + 'px');
+                $('#bbCodeWraper').css('top', coords.top + window.pageYOffset + 'px');
+
+                if ($('#bbCodeText')[0].style.display === 'block') {
+                    $('#laParseBBText').val(getBBCode(elems.html()));
+                    coords = $('#bbCodeWraper')[0].getBoundingClientRect();
+                    $('#bbCodeText').css('left', coords.left + window.pageXOffset + 'px');
+                    $('#bbCodeText').css('top', coords.bottom + window.pageYOffset + 'px');
+                }
+            } else {
+                $('#bbCodeWraper').css('display', 'none');
+                $('#laParseBBCodePrev').css('display', 'none');
+                $('#laParseBBCodeNext').css('display', 'none');
+                $('#bbCodeText').css('display', 'none');
+                if (globals.BBID != 0) globals.BBID = 0;
+            };
+        }
+
+        $(document).ready(function() {
+            $('body').append(`<div id="bbCodeWraper" style="position:absolute;top:0px;left:0px;display:none"><input id="laParseBBCode" type="button" value="BB" /><input id="laParseBBCodePrev" type="button" value="<-" style="display:none" /><input id="laParseBBCodeNext" type="button" value="->" style="display:none" /></div>`);
+            $('body').append(`<div id="bbCodeText" style="position:absolute;top:0px;left:0px;display:none"><textarea id="laParseBBText" style="width: 95%; max-width: 830px; height: 100px; margin: 0px;" value=""/></div>`);
+            $('#laParseBBCode').click(function() {
+
+                if ($('#bbCodeText')[0].style.display === 'block') {
+                    $('#laParseBBCodePrev').css('display', 'none');
+                    $('#laParseBBCodeNext').css('display', 'none');
+                    $('#bbCodeText').css('display', 'none');
+
+                    let coords = bbGetParsedControl()[0].getBoundingClientRect();
+                    let ofx = $('#bbCodeWraper')[0].getBoundingClientRect().width+3;
+                    $('#bbCodeWraper').css('left', coords.left + window.pageXOffset - ofx + 'px');
+                    $('#bbCodeWraper').css('top', coords.top + window.pageYOffset + 'px');
+
+                } else {
+                    let msgText = bbGetParsedControl().html();
+                    $('#laParseBBText').val(getBBCode(msgText));
+
+                    $('#laParseBBCodePrev').css('display', 'inline');
+                    $('#laParseBBCodeNext').css('display', 'inline');
+
+                    let coords = bbGetParsedControl()[0].getBoundingClientRect();
+                    let ofx = $('#bbCodeWraper')[0].getBoundingClientRect().width+3;
+                    $('#bbCodeWraper').css('left', coords.left + window.pageXOffset - ofx + 'px');
+                    $('#bbCodeWraper').css('top', coords.top + window.pageYOffset + 'px');
+
+                    coords = $('#bbCodeWraper')[0].getBoundingClientRect();
+                    $('#bbCodeText').css('left', coords.left + window.pageXOffset + 'px');
+                    $('#bbCodeText').css('top', coords.bottom + window.pageYOffset + 'px');
+                    $('#bbCodeText').css('display', 'block');
+                }
+            });
+
+            $('#laParseBBCodePrev').click(function() {
+                let oldY = $('#bbCodeWraper')[0].getBoundingClientRect().top;
+                globals.BBID--;
+                if (globals.BBID < 0 || !document.querySelectorAll('.parsed')[globals.BBID].getBoundingClientRect().width) globals.BBID = document.querySelectorAll('.parsed').length-1;
+                updateCode();
+                scrollBy(0, $('#bbCodeWraper')[0].getBoundingClientRect().top - oldY);
+            });
+            $('#laParseBBCodeNext').click(function() {
+                let oldY = $('#bbCodeWraper')[0].getBoundingClientRect().top;
+                globals.BBID++;
+                if (globals.BBID > document.querySelectorAll('.parsed').length-1) globals.BBID = 0;
+                updateCode();
+                scrollBy(0, $('#bbCodeWraper')[0].getBoundingClientRect().top - oldY);
+            });
+
+            setInterval(updateCode, 1000);
+        });
+    };
+
+    function dm() {
+
+        $(document).ready(function () {
+            function updateTemplate() {
+                let tmplopt = '<option value="-1">< шаблоны сообщений ></option>';
+                if (globals.tmplt.length) globals.tmplt.forEach((msg, id) => {
+                    tmplopt += `<option value="${id}">${msg.name}</option>`;
+                });
+                let template = '<select id="la_tmpl_select" size="1">' + tmplopt + '</select>&nbsp;<input type="button" id="la_tmplt_add" value=" + ">&nbsp;<input type="button" id="la_tmplt_del" value=" x ">';
+                if ($('#la_tmpl').length == 0) $('#write_form').before('<p id="la_tmpl" style="text-align: right"></p>');
+                $('#la_tmpl').html(template);
+            };
+
+            updateTemplate();
+
+            $('body').on('change', '#la_tmpl_select', function () {
+                let msgId = parseInt($('#la_tmpl_select').val(), 10);
+                if (isNaN(msgId) || msgId == -1) {
+                    $('#subject').val('');
+                    $('#text').val('');
+                };
+                if (!isNaN(msgId) && msgId > -1 && globals.tmplt[msgId] != undefined) {
+                    $('#subject').val(globals.tmplt[msgId].name);
+                    $('#text').val(globals.tmplt[msgId].text);
+                };
+            });
+            $('body').on('click', '#la_tmplt_add', function () {
+                globals.tmplt.push({name: $('#subject').val(), text: $('#text').val()});
+                setSettings('tmplt', JSON.stringify(globals.tmplt));
+                updateTemplate();
+            });
+            $('body').on('click', '#la_tmplt_del', function () {
+                let msgId = parseInt($('#la_tmpl_select').val(), 10);
+                if (!isNaN(msgId) && msgId > -1 && globals.tmplt[msgId] != undefined)
+                globals.tmplt.splice(msgId, 1);
+                setSettings('tmplt', JSON.stringify(globals.tmplt));
+                updateTemplate();
+            });
+            $("#main").on('DOMNodeInserted', '#write_div', function () {if ($('#la_tmpl').length == 0) updateTemplate();});
+        });
+    };
+
+    function cw3() {
+
+        addCSS(`#tr_la_group {background-color: var(--table-bg, var(--bg-color2, #FFDEAD));}
+                #la_group.locked {background-color: var(--table-bg, var(--bg-color2, #FFDEAD));}
+                #la_group.unlocked {
+                    background-color: var(--table-bg, var(--bg-color2, #FFDEAD));
+                    position: absolute;
+                    z-index: 99;
+                    left: ${globals.left}px;
+                    top: ${globals.top}px;
+                    width: 400px;
+                }
+                .la_cell {width: 100%}
+                #history_block {background-color: var(--table-bg, var(--bg-color2, #FFDEAD));}
+                #la_table.hidden {display:none}
+                #la_addMaps.hidden {display:none}
+                #la_cats_list, #la_maps_list {width: 100%}
+                #la_group hr {
+                    margin: 2px 0;
+                    padding: 0;
+                    height: 1px;
+                    border: none;
+                    background: linear-gradient(45deg, #333, #ddd);
+                }`);
+
+        if (globals.la_showitems) {
+            let item_style = "";
+            globals.la_items.forEach(items => {
+                items.items.forEach(item => {
+                    item_style += `#tr_field [style*='things/${item}.png'] {background-color: ${items.color} !important;}
+`;
+                })
+            })
+            addCSS(item_style);
+        }
+
+        if (isDesktop) {
+            addCSS(`#la_cats, #la_maps {float: left; width: 50%; height=100}
+                #la_cats.locked, #la_maps.locked {float: none; width: 100%}`);
+        };
+
+        let ids = [];
+        let statuses = [];
+
+        let all_ids = [];
+        let skins = [];
+        let names = [];
+        let titles = [];
+        let otherTrib = [];
+
+        let hist = [];
+        let moveCages = [];
+        let needUpdate = false;
+        let catsBuff = '';
+        let oldGroup = [];
+        let la_ok = true;
+
+        if (true) $.ajax({
+            type: "POST",
+            url: "/",
+            contentType: "application/json; charset=utf-8",
+            success: function (data) {
+                let pattern = /<\/big> — <i>([^<]+)<\/i>/i;
+                let found = data.match(pattern);
+                if (found != undefined && found[1] != undefined) {
+                    globals.myTitle = found[1];
+                    setSettings('myTitle', globals.myTitle)
+                }
+
+                pattern = /<b id='id_val'>([^<]+)<\/b>/i;
+                found = data.match(pattern);
+                if (found != undefined && found[1] != undefined) {
+                    globals.la_myID = found[1];
+                    setSettings('la_myID', globals.la_myID)
+                }
+
+                pattern = /<big>([^<]+)<\/big>/i;
+                found = data.match(pattern);
+                if (found != undefined && found[1] != undefined) {
+                    globals.myName = found[1];
+                    setSettings('myName', globals.myName)
+                }
+
+                pattern = /title="Племя"><\/td><td><b>([^<]+)<\/b>/i;
+                found = data.match(pattern);
+                if (found != undefined && found[1] != undefined) {
+                    globals.tribe = found[1];
+                    setSettings('tribe', globals.tribe)
+                }
+            }
+        });
+
+        function change_statuses() {
+            const currMapName = $('#location').html();
+
+            let color = '#000000';
+            let list = $('#la_cats_list').val();
+            let N = 0;
+            let P = 0;
+            let N1 = 0;
+            let P1 = 0;
+            let bg_op = 0;
+
+            let catlist = '';
+            catsBuff = '';
+            oldGroup = [];
+
+            all_ids.forEach(id => {
+                let onTheMap = !(ids[id] == undefined);
+
+                if (statuses[id] == '[ В игре ]') color = '#006400';
+                if (statuses[id] == '[ Спит ]') color = '#640000';
+                if (!onTheMap) color = '#aaaaaa';
+
+                bg_op = 0;
+                if (hist[id] != undefined) bg_op = hist[id];
+
+                if (list.includes(names[id]) || list.includes(id)) {
+
+                    catlist = catlist + `${(onTheMap ? '' : '<s>')}<font id="la_cat" cat_id="${id}" size=2px color=${color} style="background: rgba(255, 255, 255, ${bg_op / 12})"><a id="cats_click" href=#>${names[id]}</a> (${id}), ${titles[id]}</font>${(onTheMap ? '' : '</s>')}<br>
+`;
+                    catsBuff += (catsBuff == '' ? '' : ', ') + names[id] + ' (' + id + ')';
+                    oldGroup.push({name: names[id], ID: id});
+                    N++;
+                    if (onTheMap) P++;
+                }
+            });
+
+            catlist += (catlist == '' ? '' : '<hr>');
+
+            if (globals.la_show_all_cats) {
+                const hopeID = getCurrentMapID();
+                const wdif = worldmap[hopeID];
+
+                all_ids.forEach(id => {
+                    let onTheMap = !(ids[id] == undefined);
+
+                    if (statuses[id] == '[ В игре ]') color = '#006400';
+                    if (statuses[id] == '[ Спит ]') color = '#640000';
+                    let cat_alert = (otherTrib[id] == true) || (hopeID != undefined && titles[id] == 'Котёнок' && wdif != undefined && wdif.dif > 1);
+
+                    if (!onTheMap) color = '#aaaaaa';
+
+                    bg_op = 0;
+                    if (hist[id] != undefined) bg_op = hist[id];
+
+                    if (names[id] != undefined && (onTheMap || bg_op > 0) && !(list.includes(names[id]) || list.includes(id))) {
+
+                        catlist = catlist + `${(onTheMap ? '' : '<s>')}<font id="la_cat" cat_id="${id}" size=2px color=${color} style="background: rgba(${cat_alert ? '255, 0, 0' : '255, 255, 255'}, ${bg_op / 12})"><a id="cats_click" href=#>${names[id]}</a> (${id}), ${titles[id]}</font>${(onTheMap ? '' : '</s>')}<br>
+`;
+                        catsBuff += (catsBuff == '' ? '' : ', ') + names[id] + ' (' + id + ')';
+                        N1++;
+                        if (onTheMap) P1++;
+                    };
+                });
+            };
+
+            $('#la_cmd_title').html(catlist);
+            $('#la_cats_count').html(`[ ${P} / ${N} ]`);
+            $('#la_all_cats_count').html(`[ ${P1} / ${N1} ]`);
+        };
+
+        function update_maps() {
+            let N = 0; let N0 = 0; let N1 = 0; let M = 0;
+            let P = 0;
+            let T = 0;
+            let old_group = 0;
+            let maplist = '';
+            let maps = $('#la_maps_list').val().split(/[|\/;:➝—-]/);
+            let currentMap = false;
+            let wasCurrentMap = false;
+            let nextMap = [];
+
+            const currMapID = getCurrentMapID();
+            const currMapName = $('#location').html();
+
+            $('#la_mapAdd').val(globals.mapAdd);
+
+            let wcurrMapName = currMapName;
+            if (worldmap[currMapID] != undefined) wcurrMapName = worldmap[currMapID].name;
+
+            moveCages = [];
+
+            maps.forEach(map => {
+                if (map.trim() != '') {
+                    currentMap = map.trim() == wcurrMapName || map.trim() == currMapID;
+                    let isBold = false;
+                    let isStrike = false;
+                    let bgcolor = currentMap ? ' style="background-color: rgba(255, 255, 255, 0.8)"' : '';
+
+                    const hopeID = worldmapSorted.indexOf(map.trim());
+                    if (wasCurrentMap) nextMap.push(hopeID == -1 ? map.trim() : hopeID);
+
+                    if (hopeID > -1 && worldmap[hopeID] != undefined) {
+                        T += (old_group == 0 ? 0 : old_group == worldmap[hopeID].group ? 5 : globals.move_time) * (worldmap[hopeID].count == undefined ? 1 : worldmap[hopeID].count);
+                        if (!currentMap && worldmap[hopeID].dif > 4) bgcolor = ' style="background-color: rgba(255, 0, 0, 0.8)"';
+                        isBold = worldmap[hopeID].dif > 2;
+                        old_group = worldmap[hopeID].group;
+                    } else {
+                        isStrike = true;
+                        T += 45;
+                    };
+                    let newLine = `<font size=2 color=#000000${(bgcolor)}><a id="maps_click" href=#>${map.trim()}</a></font>`;
+                    if (hopeID > -1) newLine = `<font size=2 color=#000000${(bgcolor)}><a id="maps_click" href=#${worldmap[hopeID].count == undefined ? '' : ' title="' + worldmap[hopeID].count + ' локаций"'}>${map.trim()}</a></font>`;
+                    if (isBold) newLine = '<b>' + newLine + '</b>';
+                    //if (isStrike) newLine = '<s>' + newLine + '</s>';
+                    // убираем зачеркнутые незнакомые локации в маршруте
+                    maplist += (maplist == '' ? '' : ' ➝ ') + newLine;
+                    N++;
+                    if (hopeID > -1) N1 = N1 + (worldmap[hopeID].count == undefined ? 1 : worldmap[hopeID].count); else N1++;
+                    if (currentMap) N0 = N1;
+                    wasCurrentMap = currentMap;
+                };
+            });
+
+            maplist += (maplist == '' ? '' : ' ➝ ') + '<font size=2 color=#000000><b><a id="maps_click" href=#>Отмена</a></b></font>';
+
+            if (true) {
+                maplist += (maplist == '' ? '' : '<hr>') + `<label><b>Переходы: </b></label>`;
+                let cages = document.getElementById('cages');
+                let elemList = cages.querySelectorAll('.move_name');
+                let isBold = false;
+                moveCages = [];
+
+                let allCage = cages.querySelectorAll('.cage');
+                allCage.forEach(cage => {
+                    if ($(cage).attr('style') == 'background-color: rgba(255, 0, 0, 0.4)'
+                        || $(cage).attr('style') == 'background-color: rgba(128, 128, 256, 0.4)'
+                    ) $(cage).attr('style', '');
+                });
+
+                function addMapToList(map, mapID, elem, hid = false, x = 0, y = 0){
+                    let bgcolor = '';
+                    let mapName = map.trim();
+
+                    if (hidden[currMapID] != undefined && hidden[currMapID] != undefined)
+                    {
+                        mapID = hidden[currMapID][M];
+                        M++;
+                    }
+                    if (worldmap[mapID] == undefined && worldmapSorted.indexOf(map.trim()) >= 0)
+                        mapID =  worldmapSorted.indexOf(map.trim());
+
+                    if (mapID > -1 && worldmap[mapID] != undefined && worldmap[mapID].route.length) {
+                        if (worldmap[mapID].dif > 4) bgcolor = ' style="background-color: rgba(255, 0, 0, 0.8)"';
+                        isBold = worldmap[mapID].dif > 2;
+                        mapName = (hid ? '[' + x + 'x' + y + '] ' : '') + worldmap[mapID].name;
+
+                        if (mapName != map.trim()) bgcolor = ' style="background-color: rgba(200, 200, 200, 0.4)"'
+                    } else {
+                        //bgcolor = ' style="background-color: rgba(255, 255, 0, 0.8)"'
+                        // убираем желтую подсветку незнакомых переходов...
+                    }
+                    P = P + 1;
+
+                    let newLine = `<font size=2 color=#000000${bgcolor}><a id="move_click" move_id="${P}" href=#>${mapName}</a></font>`;
+                    if (isBold) newLine = '<b>' + newLine + '</b>';
+
+                    let isFromMap = mapID > -1 && worldmap[mapID] != undefined && (worldmap[mapID].n > 0 || la_ok);
+
+                    if (nextMap.includes(mapName) || nextMap.includes(mapID)) {
+                        newLine = '<label style="border-bottom: 2px solid #F00;">' + newLine + '</label>';
+                        if (!hid || isFromMap) elem.attr('style', 'background-color: rgba(255, 0, 0, 0.4)');
+                    } else {
+                        if (hid && isFromMap) {
+                            elem.attr('style', 'background-color: rgba(128, 128, 256, 0.4)');
+                        } else {
+                            elem.attr('style', '');
+                        }
+                    };
+                    maplist += newLine + '; ';
+
+                }
+
+                elemList.forEach(elem => {
+                    let map = $(elem).html();
+                    let mapID = parseInt($(elem.parentElement.firstChild).attr('src').split('/')[1].split('.')[0], 10);
+                    addMapToList(map, mapID, $(elem.parentElement));
+                    moveCages[P] = $(elem.parentElement);
+                });
+
+                if (worldmap[currMapID] != undefined && worldmap[currMapID].hr != undefined) worldmap[currMapID].hr.forEach(map => {
+                    addMapToList('[' + map.x + 'x' + map.y + ']', map.id, $(document.getElementById('cages').firstChild.childNodes[map.y-1].childNodes[map.x-1]), true, map.x, map.y);
+                    moveCages[P] = $(document.getElementById('cages').firstChild.childNodes[map.y-1].childNodes[map.x-1]);
+                });
+            }
+
+            let titleText = '';
+            let mapStyle = '';
+            let nMapText = '';
+            let curMapData = worldmap[currMapID];
+            if (curMapData != undefined) {
+                if (curMapData.dif > 2) mapStyle = ' style="background-color: rgba(255, 0, 0, 0.8)"';
+                if (curMapData.n != undefined && curMapData.n > 0) nMapText = '[' + curMapData.n + '] ';
+                if (curMapData.dif > 2) titleText = ' title="' + curMapData.dif + ' уровень!"';
+                if (curMapData.dif == 10) titleText = ' title="Есть дубль локации по карте переходов!"';
+            }
+
+            $('#la_maps_title').html(maplist);
+            $('#la_maps_count').html('[ ' + N0 + ' / ' + N1 + ' ]' + (T > 0 ? ' '+fancyTimeFormat(T) : '' ) + ' ID: [' + currMapID + '] <a href=# id="la_copy_map"' + mapStyle + titleText + '>' + nMapText + wcurrMapName + '</a>');
+        }
+
+        function updateCatsList() {
+
+            const currMapName = $('#location').html();
+
+            let cages = document.getElementById('cages');
+
+            let elemList = cages.querySelectorAll('.catWithArrow');
+            ids = [];
+            elemList.forEach(elem => {
+                let hrefa = $(elem).find('.cat_tooltip > u > a');
+                let href = hrefa.attr('href');
+                if (href !== undefined) {
+                    let cat_id = href.replace(/\D/g, '');
+                    ids[cat_id] = cat_id;
+                    all_ids[cat_id] = cat_id;
+                }
+            });
+
+            let cats = [];
+        }
+
+        function update_backgroud() {
+            const hopeID = getCurrentMapID();
+            const wdif = worldmap[hopeID];
+            let rep = false;
+
+            all_ids.forEach(id => {
+                let bg_op = 0;
+                if (hist[id] != undefined) bg_op = hist[id];
+                let cat_alert = (otherTrib[id] == true) || (hopeID != undefined && titles[id] == 'Котёнок' && wdif != undefined && wdif.dif > 1);
+                let cat = $(`[cat_id="${id}"]`);
+                if (cat != undefined) {
+                    cat.attr('style', `background: rgba(255, ${(cat_alert ? '0, 0' : '255, 255')}, ${bg_op / 12})`);
+                    if (hist[id] > (otherTrib[id] == true ? 2 : 0)) {
+                        hist[id]--;
+                        rep = true;
+                    };
+                }
+            });
+
+            if (rep) setTimeout(update_backgroud, 1000);
+        }
+
+        function updateTimerTick() {
+            if (!la_ok) return;
+            if (!needUpdate) return;
+
+            let closedPage = $('body').children().length == 0;
+            if (globals.la_cats_visible && needUpdate && !closedPage) {
+                updateCatsList();
+                change_statuses();
+            };
+            update_maps();
+            needUpdate = false;
+
+            if (globals.la_cats_visible && !closedPage) update_backgroud();
+        }; setInterval(updateTimerTick, 1000);
+
+        function getRouteToPoint(from, to) {
+
+            if (from == to) return {hope: 0, route: (worldmap[from] == undefined ? '' : worldmap[from].name)};
+            if (worldmap[to] != undefined && worldmap[to].track != undefined) return {hope: 0, route: worldmap[to].track};
+
+            let mapOfDistance = [];
+            function makeMapOfDistance(origin, from = undefined, dist = 0) {
+                if (from == undefined) {
+                    if (worldmap[origin] != undefined && worldmap[origin].route != undefined)
+                        worldmap[origin].route.forEach(toID => {
+                            if (worldmap[toID] == undefined) return;
+                            let localTime = (worldmap[origin].group == worldmap[toID].group ? 5 : globals.move_time) * worldmap[toID].dif;
+                            mapOfDistance[toID] = {dist: dist+localTime, from: origin};
+                            makeMapOfDistance(origin, toID, dist+localTime);
+                        });
+                } else if (worldmap[from] != undefined && worldmap[from].route != undefined) worldmap[from].route.forEach(toID => {
+                    if (worldmap[toID] == undefined) return;
+                    let localTime = (worldmap[from].group == worldmap[toID].group ? 5 : globals.move_time) * worldmap[toID].dif;
+                    if (mapOfDistance[toID] == undefined || mapOfDistance[toID].dist > (dist + localTime)) {
+                        mapOfDistance[toID] = {dist: dist+localTime, from: from};
+                        makeMapOfDistance(origin, toID, dist+localTime);
+                    };
+                });
+            };
+
+            makeMapOfDistance(from);
+            if (mapOfDistance[to] == undefined) return {hope: -1, route: ''};
+
+            let fromMapID = mapOfDistance[to].from;
+            let route = ' ➝ ' + worldmap[to].name;
+
+            while (fromMapID != from) {
+                route = ' ➝ ' + worldmap[fromMapID].name + route;
+                fromMapID = mapOfDistance[fromMapID].from;
+            };
+            route = worldmap[fromMapID].name + route;
+
+            return {hope: mapOfDistance[to].dist, route: route};
+        }
+
+        $(document).ready(function () {
+
+            if (worldGroups[globals.la_cur_group] == undefined) {
+                globals.la_cur_group = 0;
+                setSettings('la_cur_group', globals.la_cur_group);
+            }
+
+            let option = `<select id="la_route" name="la_route" size=1>`;
+            let wmSorted = [];
+            worldmapSorted.forEach(item => {if (wmSorted.indexOf(item) == -1) wmSorted.push(item);});
+            wmSorted.sort();
+
+            wmSorted.forEach(route => {
+                if (worldGroups[globals.la_cur_group].includes(worldmapSorted.indexOf(route)))
+                    option += ` <option value="${worldmapSorted.indexOf(route)}">${route}</option>`;
+            });
+            option += `</select>`;
+
+            let mapGroups = `<select id="la_mapGroups" name="la_mapGroups" size=1>`;
+            worldGroups.forEach(group => {
+                let grID = worldGroups.indexOf(group);
+                mapGroups += ` <option value="${grID}"${(globals.la_cur_group == grID ? ' selected' : '')}>${worldmapSorted[grID]}</option>`;
+            });
+            mapGroups += `</select>`;
+
+
+            let reports = `<select id="la_reports" name="la_reports" size=1>`;
+            globals.la_reports.forEach(report => {
+                reports += ` <option value="${globals.la_reports.indexOf(report)}">${report.name}</option>`;
+            })
+            reports += `</select>`;
+
+            const hvo_settings = JSON.parse(window.localStorage.getItem('cwmod_settings') || '{}');
+
+            const open_lock = '🔓';
+            const close_lock = '🔒';
+
+            const la_main_content = `<div id="la_group">
+                <div id=la_header><label><input type="checkbox" id="la_show_cats" ${(globals.la_cats_visible ? 'checked' : '')}/><b>Коты и локации </b></label><a href="#"><label id="la_lock">${(globals.locked ? close_lock : open_lock)} </a></label><h7 id=la_comment></div></h7>
+                <div id="la_table"${(globals.la_cats_visible ? '' : ' class="hidden"')}><hr>
+                    <div id="la_cats" class="la_cell"><b>Команда: </b> <label id="la_cats_count"></label>
+                        <label><input id="show_all_cats" type="checkbox"${(globals.la_show_all_cats ? ' checked' : '')}/><b>Все коты: </b></label><label id="la_all_cats_count"></label>
+                        <a id="la_copy_cats" href=#>Скопировать список</a>
+                        <input id="la_cats_list" type="text" class="la_cell"><br>
+                        <div id="la_cmd_title"></div><hr>${reports} <button id="la_reports_click">Отчет</button><hr>
+                    </div><div id="la_maps" class="la_cell"><b>Локации: </b> <label id="la_maps_count"></label>  <input id="la_maps_list" type="text" class="la_cell"><br>
+                        <div id="la_maps_title"></div><hr>${mapGroups}${option} <button id="la_route_click">Найти путь</button> <button id="la_route_click2">Обратно</button><div id="la_addMaps" class="hidden"><hr>
+                        <label>Локация пути: </label><input type="text" id="la_mapAdd" value="${globals.mapAdd}" size="3"> <button id="la_DecN">-</button> <button id="la_AddN">+</button></div>
+                    </div>
+                </div>
+            </div>`;
+
+            if (hvo_settings.cw3_compact) {
+                $(la_main_content).insertAfter('#main_table');
+            } else {
+                $(`<tr id="tr_la_group"><td>${la_main_content}</td></tr>`).insertAfter('#tr_chat');
+            };
+
+            if (globals.locked) {
+                $('#la_group').toggleClass('locked');
+            } else {
+                $('#la_group').toggleClass('unlocked ui-widget ui-corner-all');
+                $('#la_cats').toggleClass('locked');
+                $('#la_maps').toggleClass('locked');
+                $('#la_group').draggable({stop: function () {let p = $('#la_group').position(); setSettings('left', p.left); setSettings('top', p.top);}});
+            };
+
+            $('#la_cats_list').val(globals.la_cats_list);
+            $('#la_maps_list').val(globals.la_maps_list);
+            update_maps();
+
+            $("#cages").on('DOMNodeInserted', '.catWithArrow', function () {
+
+                let href = $(this).find('.cat_tooltip > u > a').attr('href');
+                if (href !== undefined) {
+                let cat_id = href.replace(/\D/g, '');
+                ids[cat_id] = cat_id;
+                all_ids[cat_id] = cat_id;
+                //if (names[cat_id] === undefined) {
+                    let name = $(this).find('.cat_tooltip > u > a').html();
+                    adedNames.forEach(item => {name = name.replace(item, '');});
+                    names[cat_id] = name;
+                //}
+                //if (titles[cat_id] === undefined) {
+                    let title = $(this).find('.cat_tooltip > div[style!="font-weight: initial;"] > small > i').html();
+
+                    globals.la_groups.forEach(group => {
+                        if (group.list.includes(cat_id) || group.list.includes(names[cat_id])) title += ', ' + group.name;
+                    });
+                    titles[cat_id] = title;
+                //}
+                if ($(this).find('.cat_tooltip > img[src*="odoroj/13.png"]').html() == undefined) otherTrib[cat_id] = true;
+
+                let status = $(this).find('.online').text(); // [ На удалении ]
+                let is_punished = $(this).find('div[style*="costume/295."]').length; // Подстилки?
+                if (is_punished) {
+                    status = "[ В подстилках ]";
+                }
+                statuses[cat_id] = status;
+                hist[cat_id] = 10;
+                needUpdate = true;
+                }
+
+            });
+
+            $("#cages").on('DOMNodeRemoved', '.catWithArrow', function () {
+                let href = $(this).find('.cat_tooltip > u > a').attr('href');
+                if (href !== undefined) {
+                let cat_id = href.replace(/\D/g, '');
+                delete ids[cat_id];
+                hist[cat_id] = 10;
+                needUpdate = true;
+                }
+            });
+
+            if (globals.show_stat) $("#history_block #ist").on('DOMSubtreeModified', function () {
+                const textCount = {};
+                const groupsCount = {};
+                let hist = $("#history_block #ist").text().split('.');
+                let lastAction = '';
+                hist.forEach(item => {
+                    let itm = item.trim();
+                    textCount[itm] = (textCount[itm] == undefined ? 1 : textCount[itm] + 1);
+                    if (itm != 'История очищена' && itm != '') lastAction = itm;
+                    let group = itm.split(" ")[0];
+                    groupsCount[group] = (groupsCount[group] == undefined ? 1 : groupsCount[group] + 1);
+                });                
+                let groupNames = [];
+                for (key in groupsCount) groupNames.push([key, groupsCount[key]]);
+                groupNames.sort((a, b) => b[1] - a[1]);
+
+                let actNames = [];
+                for (key in textCount) actNames.push([key, textCount[key], key.split(" ")[0]]);
+                actNames.sort((a, b) => b[1] - a[1]);
+
+                if ($('#history_block #la_ist').html() == undefined) {$('<span id="la_ist"></span>').insertBefore('#ist');};
+                let istText = '';
+                //for (key in textCount) {if (!(key == '' || key == 'История очищена' || textCount[key] < 3)) {istText += '<b>[' + textCount[key] + ']</b> ' + key + '<br>'};}
+                let block_count = 1;
+
+                groupNames.forEach(key => {
+                    if (!(key[0] == '' || key[0] == 'История очищена' || key[1] < 2)) {
+                       
+                        let divText = '';
+                        let divCount = 0;
+                        actNames.forEach(act => {
+                            if (act[2] == key[0]) {
+                                divText += '<b>[' + act[1] + ']</b> ' + act[0] + '<br>';
+                                divCount++;
+                            };
+                        });
+                        if (divCount > 1) {
+                            istText += '<a href="#" id="ist_block" ist_id=' + block_count + '><b>[' + key[1] + ']</b> ' + key[0] + ' ...</a><br>';
+                            istText += '<div id="ist_block_' + block_count + '" style="display:none">' + divText + '</div>';
+                        } else {
+                            istText += divText;
+                        };
+                        block_count++;
+                    };
+                });
+                if (istText != '') istText += '<hr>';
+                if (lastAction != '') $('#la_comment').html(' - ' + lastAction);
+                
+                $('#la_ist').html(istText);
+            });
+
+            $('#la_copy_cats').on('click', function () {
+                navigator.clipboard.writeText(catsBuff);
+            });
+
+            $('#la_route_click').on('click', function () {
+                try {
+                    let fromID = getCurrentMapID();
+                    let toID = parseInt($('#la_route[name=la_route]').val(), 10);
+                    let routes = getRouteToPoint(fromID, toID);
+                    globals.la_maps_list = routes.route;
+
+                    $('#la_maps_list').val(globals.la_maps_list);
+                    setSettings('la_maps_list', globals.la_maps_list);
+                    update_maps();
+                } catch (err) {
+                    window.console.error('la: kb_track error: ', err);
+                }
+            });
+
+            $('#la_AddN').on('click', function () {
+                globals.mapAdd++;
+                setSettings('mapAdd', globals.mapAdd);
+                update_maps();
+            });
+            $('#la_DecN').on('click', function () {
+                globals.mapAdd--;
+                setSettings('mapAdd', globals.mapAdd);
+                update_maps();
+            });
+            $('body').on('change', '#la_mapAdd', function () {
+                globals.mapAdd = parseInt($('#la_mapAdd').val(), 10);
+                setSettings('mapAdd', globals.mapAdd);
+                update_maps();
+            });
+
+            $('#la_route_click2').on('click', function () {
+                try {
+                    let fromID = getCurrentMapID();
+                    let toID = parseInt($('#la_route[name=la_route]').val(), 10);
+                    let routes = getRouteToPoint(toID, fromID);
+                    globals.la_maps_list = routes.route;
+
+                    $('#la_maps_list').val(globals.la_maps_list);
+                    setSettings('la_maps_list', globals.la_maps_list);
+                    update_maps();
+                } catch (err) {
+                    window.console.error('la: kb_track error: ', err);
+                }
+            });
+
+            $('#la_reports_click').on('click', function () {
+                function convertTZ(date, tzString) {
+                    return new Date((typeof date === "string" ? new Date(date) : date).toLocaleString("en-US", {timeZone: tzString}));
+                };
+                function leadZero(str) {
+                    const res = str.toString();
+                    return (res.length == 1 ? '0' : '') + res;
+                };
+
+                let reportID = parseInt($('#la_reports[name=la_reports]').val(), 10);
+                let report = globals.la_reports[reportID].report;
+
+                let now = convertTZ(new Date(), 'Europe/Moscow');
+
+                report = report.replace(/\$Date/g, `${leadZero(now.getDate())}.${leadZero(now.getMonth()+1)}.${now.getFullYear()}`);
+                report = report.replace(/\$Time/g, `${leadZero(now.getHours())}:00`);
+                report = report.replace(/\$ID/g, globals.la_myID);
+                report = report.replace(/\$Name/g, globals.myName);
+                report = report.replace(/\$Title/g, globals.myTitle);
+
+
+                let list_map = globals.la_reports[reportID].list;
+                let list = '';
+
+                oldGroup.forEach(group => {
+                    list += (list == '' ? '' : ', ') + list_map.replace(/\$Name/g, group.name).replace(/\$ID/g, group.ID);
+                });
+                report = report.replace(/\$List/g, list);
+                navigator.clipboard.writeText(report);
+                //alert('Скопировано в буфер обмена: \n\n' + report);
+            });
+
+            $('body').on('change', '#la_show_cats', function () {
+                globals.la_cats_visible = $(this).prop('checked');
+                $('#la_table').toggleClass('hidden');
+                setSettings('la_cats_visible', globals.la_cats_visible)
+                needUpdate = true;
+            });
+
+            $('body').on('click', '#ist_block', function () {
+                let divBlock = $('#ist_block_' + $(this).attr('ist_id'));
+                divBlock.attr('style', (divBlock.attr('style') == 'display:none' ? 'display:block;background-color: rgba(255,255,255,0.3)' : 'display:none'));
+            });
+
+            $('body').on('change', '#show_all_cats', function () {
+                globals.la_show_all_cats = $(this).prop('checked');
+                setSettings('la_show_all_cats', globals.la_show_all_cats);
+                needUpdate = true;
+            });
+
+            $('body').on('change', '#la_cats_list', function () {
+                globals.la_cats_list = $('#la_cats_list').val();
+                setSettings('la_cats_list', globals.la_cats_list);
+                needUpdate = true;
+            });
+
+            $('body').on('change', '#la_maps_list', function () {
+                globals.la_maps_list = $('#la_maps_list').val();
+                setSettings('la_maps_list', globals.la_maps_list);
+                update_maps();
+            });
+
+            $('body').on('click', '#cats_click', function () {
+                $('#text').val($('#text').val() + $(this).html() + ', ');
+            });
+
+            $('body').on('mouseover', '#la_cat', function () {
+                let cat_el = $(document.getElementById('cages')).find(`.cat_tooltip u a[href*=${$(this).attr('cat_id')}]`).parent().parent().parent().parent().parent()[0];
+                if (cat_el != undefined) cat_el.style = "box-shadow:0 0 20px #FFF;";
+            });
+
+            $('body').on('mouseout', '#la_cat', function () {
+                let cat_el = $(document.getElementById('cages')).find(`.cat_tooltip u a[href*=${$(this).attr('cat_id')}]`).parent().parent().parent().parent().parent()[0];
+                if (cat_el != undefined) cat_el.style = "";
+            });
+
+            $('body').on('click', '#maps_click', function () {
+                $('#text').val($(this).html());
+            });
+
+            $('body').on('click', '#move_click', function () {
+                $('#text').val($(this).html());
+            });
+
+            $('body').on('click', '#la_lock', function () {
+
+                if (!$('.stylish-style').length) {
+                    $('#la_group').toggleClass('locked unlocked ui-widget ui-corner-all');
+                    $('#la_cats').toggleClass('locked');
+                    $('#la_maps').toggleClass('locked');
+                    if (globals.locked) {
+                        $('#la_group').draggable({stop: function () {let p = $('#la_group').position(); setSettings('left', p.left); setSettings('top', p.top);}});
+                    };
+                    setSettings('locked', !globals.locked)
+                };
+            });
+
+            $('body').on('click', '#la_copy_map', function () {
+                let currMapID = getCurrentMapGlobalID();
+                let currMapGroupID = currMapID;
+                let currMapName = $('#location').html();
+                let routes = ''; let M = 0;
+                moveCages.forEach(elem => {
+                    let src = $(elem[0].parentElement.firstChild).attr('src');
+                    if (src != undefined) {
+                        let mapID = parseInt(src.split('/')[1].split('.')[0], 10);
+                        if (hidden[currMapID] != undefined)
+                        {
+                            if (hidden[currMapID][M] != undefined) mapID = hidden[currMapID][M];
+                            M++;
+                        }
+                        routes += (routes == '' ? '' : ', ') + mapID;
+                    } else routes += (routes == '' ? '' : ', ') + '0';
+                });
+
+                //worldmap[218] = {group: 218, dif: 1, name: '218', map: '4263', route: [219, 229]};
+                if (currMapName == 'Звёздная степь') currMapName = '';
+
+                let n = 0;
+                let newMapName = currMapName;
+
+                if ($('#ll').prop('checked')) {
+                    currMapID = parseInt($('#ll_id').val(), 10); $('#ll_id').val(currMapID+1);
+                    n = parseInt($('#ll_n').val(), 10); $('#ll_n').val(n+1);
+                    newMapName = $('#ll_name').val()
+                };
+
+                const res = `worldmap[${currMapID}] = {group: ${currMapGroupID}, n: ${n}, dif: 1, name: '${newMapName}', map: '${currMapName}${getMovesMap()}', route: [${routes}]};`;
+                navigator.clipboard.writeText(res);
+            });
+
+            $('body').on('change', '#la_mapGroups', function () {
+
+                globals.la_cur_group =  parseInt($('#la_mapGroups[name=la_mapGroups]').val(), 10);
+                setSettings('la_cur_group', globals.la_cur_group);
+
+                //let option = `<select id="la_route" name="la_route" size=1>`;
+                let option = '';
+                let wmSorted = [];
+                worldmapSorted.forEach(item => {if (wmSorted.indexOf(item) == -1) wmSorted.push(item);});
+                wmSorted.sort();
+                wmSorted.forEach(route => {
+                    if (worldGroups[globals.la_cur_group].includes(worldmapSorted.indexOf(route)))
+                        option += ` <option value="${worldmapSorted.indexOf(route)}">${route}</option>`;
+                });
+                //option += `</select>`;
+                $('#la_route').html(option);
+            });
+
+            needUpdate = true;
+
+        });
+    };
+
+    function sett() {
+
+        const html = `<hr><hr><div id="la_settings"><h3>Настройки [Скрипт by <a href="https://catwar.su/cat1424005">Кышбрысь</a> (lite) (v.${la_version})]</h3>
+
+            <button id="la_default">Сбросить все по умолчанию</button>
+
+            <h4>Доп. функции</h4>
+            <ul><li><input type="checkbox" id="la_bbCode">Показывать кнопку разбора рядом с текстом из BB-code</li></ul>
+            <ul><li><input type="checkbox" id="la_stat">Показывать статистику повторяющихся строк в истории</li></ul>
+            <ul><li><input type="checkbox" id="la_items">Подсвечивать травы</li></ul>
+            <h4>Добавить маршруты патрулей в навигатор:</h4>
+            <form id="patrulsForm">
+                <table border=1 id="la_patrulsTable">
+                    <thead><th>Название</th><th>Маршрут</th><th></th></thead>
+                    <tbody id="la_patrulsList"></tbody>
+                </table>
+            </form>
+            <BR>
+            <div><button id="la_patrulAdd">Добавить новое поле</button> <button form="patrulsForm">Сохранить</button></div>
+            <BR>
+
+            <h4>Список групп и отрядов:</h4>
+            <form id="groupsForm">
+                <table border=1 id="la_groupsTable">
+                    <thead><th>Название</th><th>Список котов</th><th></th></thead>
+                    <tbody id="la_groupsList"></tbody>
+                </table>
+            </form>
+            <BR>
+            <div><button id="la_groupsAdd">Добавить новое поле</button> <button form="groupsForm">Сохранить</button></div>
+            <BR>
+
+            <h4>Шаблоны отписей:</h4>
+            Для списка команды: $Name - Имя котика, $ID - ID Котика<br>
+            Для отчета: $Name - ваше имя, $ID - ваш ID, $Title - ваша должность, $Date - Текущая дата, $Time - Время, начало часа по Москве, $List - Список котов
+            </div>
+            <BR>
+            <form id="reportsForm">
+                <table border=1 id="la_reportsTable">
+                    <thead><th>Название / Шаблон списка / Шаблон </th><th></th></thead>
+                    <tbody id="la_reportsList"></tbody>
+                </table>
+            </form>
+            <BR>
+            <div><button id="la_reportsAdd">Добавить новое поле</button> <button form="reportsForm">Сохранить</button></div>
+
+        <hr><hr>`;
+        $(isDesktop ? '#branch' : '#site_table').append(html);
+
+        $(document).ready(function () {
+
+            if (globals.show_BB)  $('#la_bbCode')[0].checked = true;
+            $('body').on('change', '#la_bbCode', function() {
+                globals.show_BB = this.checked;
+                setSettings('show_BB', globals.show_BB);
+            });
+
+            if (globals.show_stat)  $('#la_stat')[0].checked = true;
+            $('body').on('change', '#la_stat', function() {
+                globals.show_stat = this.checked;
+                setSettings('show_stat', globals.show_stat);
+            });
+
+            if (globals.la_showitems)  $('#la_items')[0].checked = true;
+            $('body').on('change', '#la_items', function() {
+                globals.la_showitems = this.checked;
+                setSettings('la_showitems', globals.la_showitems);
+            });
+
+            let patruls = '';
+            globals.la_patruls.forEach(patrul => {
+                patruls += `<tr>
+                    <td><input class="patrul-name" maxlength="30" minlength="2" type="text" value="${patrul.name}"></td>
+                    <td><input class="patrul-route" maxlength="1500" minlength="2" type="text" size="80" value="${patrul.route}"></td>
+                    <td><span class="la_patrulRemove">×</span></td>
+                </tr>`;
+            });
+            $('#la_patrulsList').html(patruls);
+
+            $('body').on('click', '#la_patrulAdd', function () {
+                $('#la_patrulsList').append(`<tr>
+                    <td><input class="patrul-name" maxlength="30" minlength="2" type="text"></td>
+                    <td><input class="patrul-route" maxlength="1500" minlength="2" type="text" size="80"></td>
+                    <td><span class="la_patrulRemove">×</span></td>
+                </tr>`);
+            });
+            $('body').on('click', '.la_patrulRemove', function () {
+                if ($(this).closest('tbody').find('tr').length > 0) {
+                $(this).closest('tr').remove();
+                }
+            });
+            $('body').on('submit', '#patrulsForm', function (e) {
+                e.preventDefault();
+                globals.la_patruls = [];
+                $('#la_patrulsList > tr').each(function () {
+                    let name = $(this).find('.patrul-name').val();
+                    let route = $(this).find('.patrul-route').val();
+                    if (name) {
+                        globals.la_patruls.push({name: name, route: route});
+                    }
+                });
+                setSettings('la_patruls', JSON.stringify(globals.la_patruls));
+            });
+
+            let groups = '';
+            globals.la_groups.forEach(group => {
+                groups += `<tr>
+                    <td><input class="groups-name" maxlength="30" minlength="2" type="text" value="${group.name}"></td>
+                    <td><input class="groups-route" maxlength="1500" minlength="2" type="text" size="80" value="${group.list}"></td>
+                    <td><span class="la_groupsRemove">×</span></td>
+                </tr>`;
+            });
+            $('#la_groupsList').html(groups);
+
+            $('body').on('click', '#la_groupsAdd', function () {
+                $('#la_groupsList').append(`<tr>
+                    <td><input class="groups-name" maxlength="30" minlength="2" type="text"></td>
+                    <td><input class="groups-route" maxlength="1500" minlength="2" type="text" size="80"></td>
+                    <td><span class="la_groupsRemove">×</span></td>
+                </tr>`);
+            });
+            $('body').on('click', '.la_groupsRemove', function () {
+                if ($(this).closest('tbody').find('tr').length > 0) {
+                    $(this).closest('tr').remove();
+                }
+            });
+            $('body').on('submit', '#groupsForm', function (e) {
+                e.preventDefault();
+                globals.la_groups = [];
+                $('#la_groupsList > tr').each(function () {
+                    let name = $(this).find('.groups-name').val();
+                    let list = $(this).find('.groups-route').val();
+                    if (name) {
+                        globals.la_groups.push({name: name, list: list});
+                    }
+                });
+                setSettings('la_groups', JSON.stringify(globals.la_groups));
+            });
+
+            let reports = '';
+            globals.la_reports.forEach(report => {
+                reports += `<tr>
+                    <td><input class="reports-name" maxlength="30" minlength="2" type="text" size="100" value="${report.name}"><br>
+                        <input class="reports-list" maxlength="150" minlength="2" type="text" size="100" value="${report.list}"><br>
+                        <textarea class="reports-report" maxlength="1500" cols="98" rows="10">${report.report}</textarea></td>
+                    <td><span class="la_reportsRemove">×</span></td>
+                </tr>`;
+            });
+            $('#la_reportsList').html(reports);
+
+            $('body').on('click', '#la_reportsAdd', function () {
+                $('#la_reportsList').append(`<tr>
+                    <td><input class="reports-name" maxlength="30" minlength="2" type="text" size="100"><br>
+                        <input class="reports-list" maxlength="150" minlength="2" type="text" size="100"><br>
+                        <textarea class="reports-report" cols="98" rows="10"></textarea></</td>
+                    <td><span class="la_reportsRemove">×</span></td>
+                </tr>`);
+            });
+            $('body').on('click', '.la_reportsRemove', function () {
+                if ($(this).closest('tbody').find('tr').length > 0) {
+                    $(this).closest('tr').remove();
+                }
+            });
+            $('body').on('submit', '#reportsForm', function (e) {
+                e.preventDefault();
+                globals.la_reports = [];
+                $('#la_reportsList > tr').each(function () {
+                    let name = $(this).find('.reports-name').val();
+                    let list = $(this).find('.reports-list').val();
+                    let report = $(this).find('.reports-report').val();
+                    if (name) {
+                        globals.la_reports.push({name: name, list: list, report: report});
+                    }
+                });
+                setSettings('la_reports', JSON.stringify(globals.la_reports));
+            });
+
+            $('body').on('click', '#la_default', function () {
+
+                for (var key in defaults) {
+                    globals[key] = defaults[key];
+                    if (Array.isArray(defaults[key])) {
+                        setSettings(key, JSON.stringify(globals[key]));
+                    } else {
+                        setSettings(key, globals[key]);
+                    };
+                };
+
+                alert('Обновите страницу!');
+            });
+
+        });
+    };
+
+    function myCat() {
+        $(document).ready(function () {
+            if (globals.la_myID == '') {
+                globals.la_myID = $('#id_val').html();
+                setSettings('la_myID', globals.la_myID);
+            };
+        });
+    };
+
+})(window, document, jQuery);
